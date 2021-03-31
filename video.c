@@ -38,13 +38,16 @@
 #define SCAN_HEIGHT 525
 
 // VGA
+#define VGA_BACK_PORCH_X 48
 #define VGA_FRONT_PORCH_X 16
+#define	VGA_BACK_PORCH_Y 33
 #define VGA_FRONT_PORCH_Y 10
 #define VGA_PIXEL_FREQ 25.175
 
 // NTSC: 262.5 lines per frame, lower field first
 #define NTSC_FRONT_PORCH_X 80
-#define NTSC_FRONT_PORCH_Y 22
+#define NTSC_BACK_PORCH_Y 23
+#define NTSC_FRONT_PORCH_Y 7
 #define NTSC_PIXEL_FREQ (15.750 * 800 / 1000)
 #define TITLE_SAFE_X 0.067
 #define TITLE_SAFE_Y 0.05
@@ -996,13 +999,13 @@ video_step(float mhz)
 	scan_pos_x += advance;
 	if (scan_pos_x > SCAN_WIDTH) {
 		scan_pos_x -= SCAN_WIDTH;
-		uint16_t front_porch = (out_mode & 2) ? NTSC_FRONT_PORCH_Y : VGA_FRONT_PORCH_Y;
-		uint16_t y = scan_pos_y - front_porch;
+		uint16_t back_porch = (out_mode & 2) ? NTSC_BACK_PORCH_Y : VGA_BACK_PORCH_Y;
+		uint16_t y = scan_pos_y - back_porch;
 		if (y < SCREEN_HEIGHT) {
 			render_line(y);
 		}
-		scan_pos_y++;
-		if (scan_pos_y == SCREEN_HEIGHT) {
+		y++;
+		if (y == SCREEN_HEIGHT) {
 			if (ien & 4) {
 				if (sprite_line_collisions != 0) {
 					isr |= 4;
@@ -1010,17 +1013,18 @@ video_step(float mhz)
 				isr = (isr & 0xf) | sprite_line_collisions;
 			}
 			sprite_line_collisions = 0;
-		}
-		if (scan_pos_y == SCAN_HEIGHT) {
-			scan_pos_y = 0;
-			new_frame = true;
-			frame_count++;
 			if (ien & 1) { // VSYNC IRQ
 				isr |= 1;
 			}
 		}
+		scan_pos_y++;
+		if (scan_pos_y == SCAN_HEIGHT) {
+			scan_pos_y = 0;
+			new_frame = true;
+			frame_count++;
+		}
 		if (ien & 2) { // LINE IRQ
-			y = scan_pos_y - front_porch;
+			y = scan_pos_y - back_porch;
 			if (y < SCREEN_HEIGHT && y == irq_line) {
 				isr |= 2;
 			}
@@ -1055,6 +1059,8 @@ bool
 video_update()
 {
 	static bool cmd_down = false;
+
+	bool mouse_changed = false;
 
 	// if LED is on, stamp red 8x4 square into top right of framebuffer
 	if (led_status) {
@@ -1144,9 +1150,11 @@ video_update()
 			switch (event.button.button) {
 				case SDL_BUTTON_LEFT:
 					mouse_button_down(0);
+					mouse_changed = true;
 					break;
 				case SDL_BUTTON_RIGHT:
 					mouse_button_down(1);
+					mouse_changed = true;
 					break;
 			}
 		}
@@ -1154,9 +1162,11 @@ video_update()
 			switch (event.button.button) {
 				case SDL_BUTTON_LEFT:
 					mouse_button_up(0);
+					mouse_changed = true;
 					break;
 				case SDL_BUTTON_RIGHT:
 					mouse_button_up(1);
+					mouse_changed = true;
 					break;
 			}
 		}
@@ -1166,7 +1176,11 @@ video_update()
 			mouse_move(event.motion.x - mouse_x, event.motion.y - mouse_y);
 			mouse_x = event.motion.x;
 			mouse_y = event.motion.y;
+			mouse_changed = true;
 		}
+	}
+	if (mouse_changed) {
+		mouse_send_state();
 	}
 	return true;
 }
